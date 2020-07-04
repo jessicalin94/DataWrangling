@@ -23,6 +23,7 @@ library(outliers)
 This report will go through the preprocessing techniques used to import, understand, tidy, manipulate, transform and scan two csv datasets taken from different sources. One dataset was tidied according to the tidy data principles, gathering variables from column headers and spreading indicators across column names. A mutating join was used to merge a column from one to the other. Data types were then checked, variables factored where appropriate. Finally, the data frame was scanned for any missing values and outliers, then using a capping method to replace identified inconsistencies. 
 
 
+
 ## Data 
 
 Two open source csv data sets were imported from the internet. The first one (`happy`) taken from Kaggle (https://www.kaggle.com/unsdsn/world-happiness), is data originally from the Gallup World Poll. It contains happiness scores and its components ranked by 158 countries in the year of 2015. The second dataset (`pop`) taken from the World Bank (https://datacatalog.worldbank.org/dataset/population-estimates-and-projections) contains information on population by country from the years 1960 to 2019. The `pop` data set contains many types of population measurements, for this report the data will be filtered to only contain the total population of each country, and only data for the year 2015 so that the two data sets can be merged by country. 
