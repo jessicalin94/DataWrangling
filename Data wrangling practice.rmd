@@ -1,0 +1,299 @@
+---
+title: "MATH2349 Semester 1, 2020"
+author: "Jessica Lin S3852191"
+subtitle: Assignment 2
+output:
+  html_notebook: default
+---
+## Required packages 
+
+```{r}
+# This is the R chunk for the required packages
+library(readr)
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(Hmisc)
+library(outliers)
+```
+
+
+## Executive Summary 
+
+This report will go through the preprocessing techniques used to import, understand, tidy, manipulate, transform and scan two csv datasets taken from different sources. One dataset was tidied according to the tidy data principles, gathering variables from column headers and spreading indicators across column names. A mutating join was used to merge a column from one to the other. Data types were then checked, variables factored where appropriate. Finally, the data frame was scanned for any missing values and outliers, then using a capping method to replace identified inconsistencies. 
+
+
+## Data 
+
+Two open source csv data sets were imported from the internet. The first one (`happy`) taken from Kaggle (https://www.kaggle.com/unsdsn/world-happiness), is data originally from the Gallup World Poll. It contains happiness scores and its components ranked by 158 countries in the year of 2015. The second dataset (`pop`) taken from the World Bank (https://datacatalog.worldbank.org/dataset/population-estimates-and-projections) contains information on population by country from the years 1960 to 2019. The `pop` data set contains many types of population measurements, for this report the data will be filtered to only contain the total population of each country, and only data for the year 2015 so that the two data sets can be merged by country. 
+
+
+Importing data:
+```{r}
+pop <- read_csv("/Users/jess/Desktop/RMIT/Data Wrangling/Assignment 2/data/Population-EstimatesData.csv")
+happy <- read_csv("/Users/jess/Desktop/RMIT/Data Wrangling/Assignment 2/data/WHR_2015.csv")
+
+```
+
+```{r}
+head(pop)
+```
+
+
+```{r}
+head(happy)
+```
+
+
+##	Tidy & Manipulate Data I 
+
+According to the tidy data principles,  `pop` would be considered untidy as it contains variables in column names (Year), and variables as rows (Indicator Name). To tidy according to the tidy data principles:
+```{r}
+# gather the years, then select out redundant variable (country code) and keep relevant variables
+pop_gathered <- pop %>% 
+  gather(key = "Year", value = "Indicator", 5:95) %>%
+  select(c(1, 3, 6, 7))
+
+head(pop_gathered)
+```
+
+
+```{r}
+# spread the indicators 
+pop_spread <- pop_gathered %>% spread(`Indicator Name`, value = Indicator)
+
+# The resulsting data frame is now considered tidy
+head(pop_spread)
+
+```
+
+Fortunately to merge `pop` and `happy`, there isnt a need to tidy `pop`, as once it is filtered to only contain the year of interest they can be joined using `Country Name` as the key, resulting in `pop$2015` left joined to `happy`. 
+
+First subset `pop` to only include the year of interest (2015) and also filter out to only have 'Population, total'
+```{r}
+clean_pop <- filter(pop, `Indicator Name` == "Population, total") %>% select(`Country Name`, `2015`) 
+head(clean_pop)
+```
+
+
+Using `left_join()` to merge the column `2015` to the `happy` dataset. 
+```{r}
+happy_pop <- left_join(happy, clean_pop, by = c("Country" = "Country Name")) 
+str(happy_pop) 
+```
+
+
+
+
+
+## Understand 
+
+The column name, 2015, should be changed to 'Population' for clarity.
+```{r} 
+# Renaming '2015' to 'Population'
+names(happy_pop)[names(happy_pop) == "2015"] <- "Population"
+``` 
+
+```{r}
+# Check data types of the variables
+str(happy_pop)
+```
+
+The resulting data frame has 158 rows and 13 variables. Majority of the variables are of correct data type, most of them being numerical. The only variable that needs to be converted is `Region`, which should be an unordered factor variable
+```{r}
+# Converting charcter to factor for Region 
+happy_pop$Region <- happy_pop$Region %>% factor(ordered = FALSE)
+levels(happy_pop$Region)
+```
+
+
+
+
+##	Tidy & Manipulate Data II 
+
+GDP per capita is calculated by dividing a country's GDP by its total population. Therefore, the GDP can be calculated by multiplying GDP per capita by total population:
+```{r}
+# Using mutate() to create a new variable called 'GDP'
+happy_pop <- happy_pop %>% mutate(GDP = `Economy (GDP per Capita)` * Population) 
+str(happy_pop)
+```
+
+
+##	Scan I 
+
+Scanning for missing/special values in each variable:
+```{r}
+# Scanning for NaN 
+sapply(happy_pop, function(x) sum(is.nan(x))) 
+
+```
+
+```{r}
+# Scan for infinite vaLues 
+sapply(happy_pop, function(x) sum(is.infinite(x)))
+```
+
+
+```{r}
+# Scan for missing values 
+colSums(is.na(happy_pop)) 
+```
+The output shows there are 20 missing values each in `Population` and `GDP`. Since there are no missing values in `Economy (GDP per Capita)`, it can be deducted that the most likely cause of the missing values in the imputed variable `GDP` is due to the missing values in `Population`. Therefore, the best course of action is to first solve the missing values in `Population`:
+
+```{r}
+# Finding which counties are missing population data
+happy_pop[which(is.na(happy_pop$Population)), "Country"]
+```
+
+The above twenty countries are missing population data in `happy_pop`. The first step to resolving them should be to check the pre-joined `clean_pop` dataset, and see if the values were actually missing, or incorrectly joined. 
+```{r}
+# Check how many missing values are in the original pre-joined clean_pop dataset 
+sum(is.na(clean_pop$`2015`))
+```
+```{r}
+# Print which observation was missing population data 
+clean_pop[which(is.na(clean_pop$`2015`)), ]
+```
+The output displays only two observations of `clean_pop` had no population data for 2015, 'Not classified' and 'Eritrea'. We can quickly scan that neither of these two observations are in our observations of interest. Most likely due to different spelling, matching countries did not join. Therefore, we can either change the spelling of the countries to match. Or in this case, since there's only one variable that needs to be changed, the NAs in `happy_pop` can be replaced by referencing the values in `clean_pop`. 
+
+For example, Venezuela in the `clean_pop` dataset is referred to as 'Venezuela, RB' in `pop` with a population value of 30081829. Therefore, we can replace the NA with 30081829 instead: 
+```{r}
+happy_pop[happy_pop$Country == "Venezuela", "Population"] <- 30081829 
+happy_pop[happy_pop$Country == "Venezuela", ] 
+
+```
+
+This process was repeated for other 16 observations:
+```{r}
+happy_pop[happy_pop$Country == "Slovakia", "Population"] <- 5423801       # "Slovak Republic"
+happy_pop[happy_pop$Country == "South Korea", "Population"] <- 51014947   #"Korea, Rep."
+happy_pop[happy_pop$Country == "Russia", "Population"] <- 144096870       #"Russian Federation"
+happy_pop[happy_pop$Country == "North Cyprus", "Population"] <- 1160985   #"Cyprus"
+happy_pop[happy_pop$Country == "Hong Kong", "Population"] <- 7291300      # Hong Kong SAR, China	
+happy_pop[happy_pop$Country == "Kyrgyzstan", "Population"] <- 5956900     # Kyrgyz Republic	
+happy_pop[happy_pop$Country == "Macedonia", "Population"] <- 2079328      # "North Macedonia"
+happy_pop[happy_pop$Country == "Laos", "Population"] <- 6741164           # "Lao PDR"
+happy_pop[happy_pop$Country == "Swaziland", "Population"] <- 1104044     # Eswatini
+happy_pop[happy_pop$Country == "Iran", "Population"] <- 78492215          # Iran, Islamic Rep.	
+happy_pop[happy_pop$Country == "Congo (Kinshasa)", "Population"] <- 76244544    #"	Congo, Dem. Rep."
+happy_pop[happy_pop$Country == "Egypt", "Population"] <- 92442547         #"Egypt, Arab Rep"
+happy_pop[happy_pop$Country == "Yemen", "Population"] <- 26497889         #"Yemen, Rep."
+happy_pop[happy_pop$Country == "Congo (Brazzaville)", "Population"] <- 4856095 #"Congo, Rep."
+happy_pop[happy_pop$Country == "Ivory Coast", "Population"] <- 23226143        #"Côte d'Ivoire"
+happy_pop[happy_pop$Country == "Syria", "Population"] <- 17997408               #"Syrian Arab Republic"
+
+```
+
+```{r}
+# Print how many NA values are left in 'Population'
+sum(is.na(happy_pop$Population))
+``` 
+
+
+###	(Transform)
+
+There were three remaining countries that did not exist in the `clean_pop` dataset: 'Palestinian Territories', 'Taiwan' and 'Somaliland region'. The missing values could be imputed with either the median or mean global population, depending on which one is a better measure of centre. A histogram is a great way to visualise the distribution of a variable:
+```{r}
+par(mfrow = c(1,2))
+
+hist(happy_pop$Population) 
+hist(log(happy_pop$Population))
+```
+
+The first histogram doesn't tell us much information, as the majority of data lies in the lower area of the scale, in order to gain more information, a log transformation to `Population` will give us a better indication of how the data is distributed. We can see in the transformed histogram, population follows a relatively normal distribution, therefore we will use the mean to impute the missing vales.
+```{r}
+# Impute using mean 
+happy_pop$Population <- impute(happy_pop$Population, fun = mean) 
+```
+
+Now that there are no more missing values in 'Population', 'GDP' can be recalculated:
+```{r}
+happy_pop <- happy_pop %>% mutate(GDP = `Economy (GDP per Capita)` * Population)
+``` 
+
+To confirm the missing values have been imputed:
+```{r}
+colSums(is.na(happy_pop))
+```
+
+
+##	Scan II
+
+The technique used to identify outliers in numerical variables would depend on the distribution of each. A histogram will be created for each of the numerical variables, except for 'Happiness Rank' as it would be considered a ordinal categorical variable. 
+
+```{r}
+happy_pop %>% select(4:14) %>% hist()
+```
+```{r}
+# Apply log transformation on population and GDP 
+happy_pop %>% select(13:14) %>% log() %>% hist() 
+```
+Variables that follow a skewed distribution can be scanned for outliers using Tukey's/boxplot method as it is non-parametric:
+
+- Standard Error 
+- Economy (GDP per Capita)
+- Family
+- Health (Life Expectancy)
+- Trust (Government Corruption)
+- Generosity
+
+```{r}
+# subset for skewed variables 
+happy_pop %>% select(`Standard Error`, `Economy (GDP per Capita)`, Family, `Health (Life Expectancy)`, `Trust (Government Corruption)`, Generosity) %>% boxplot()
+ 
+boxplot(hpbox) 
+```
+For the outliers in 'Standard Error', 'Family', 'Trust (Government Corruption)' and 'Generosity' a capping method is used to adjust the outliers. Capping is a less crude way of dealing with outliers compared to just removing them from the dataset, as the observations can still hold valuable information. 
+
+```{r}
+# function for capping outliers
+cap <- function(x) {
+    quantiles <- quantile( x, c(.05, 0.25, 0.75, .95 ) )
+    x[ x < quantiles[2] - 1.5*IQR(x) ] <- quantiles[1]
+    x[ x > quantiles[3] + 1.5*IQR(x) ] <- quantiles[4]
+    x
+}
+
+# apply cap function on variables
+capped <- sapply(hpbox, FUN = cap)
+
+# print out the resulting boxplots  
+boxplot(capped)
+```
+
+
+For the other variables, using the z-score method to identify outliers 
+```{r} 
+hpscore <- happy_pop %>% select(`Happiness Score`, Freedom, `Dystopia Residual`, Population, GDP)
+z <- hpscore %>% scores(type = "z")
+summary(z)
+```
+The summary shows that there are z-scores greater than a value of three in 'Dystopia Residual', 'Population' and 'GDP'. Using the `which()` function can show which observations have a z-score value greater than three: 
+```{r}
+which(abs(z$`Dystopia Residual`) > 3)
+```
+
+
+```{r}
+which(abs(z$Population) > 3)
+```
+
+
+```{r}
+which(abs(z$GDP) > 3)
+```
+According to the output, observations 15, 84, 117 and 156 have a z-score value greater than three. Capping can also be used to deal with these outliers:
+```{r}
+capped2 <- sapply(hpscore, FUN = cap)
+
+capped2 %>% scores(type = "z") %>% summary()
+```
+Now there are no longer any outliers in the variables. 
+
+## References
+
+1. Kaggle 2020, *World Happiness Report - 2015*, data file, viewed 01 June 2020, <https://www.kaggle.com/unsdsn/world-happiness>
+2. The World Bank 2019, *Population Estimates And Projections*, Data Catalog, data file, World Bank Group, viewed 01 June 2020, <https://datacatalog.worldbank.org/dataset/population-estimates-and-projections>
+
+<br>
+<br>
